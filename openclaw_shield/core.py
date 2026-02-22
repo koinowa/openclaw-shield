@@ -78,5 +78,5 @@ class SecurityGuard:
     def validate_command(self, cmd_string: str) -> None:
         self.cmd_interceptor.validate_command(cmd_string)
         
-    def validate_browser_script(self, js_script: str) -> None:
-        self.browser_interceptor.validate_evaluate_script(js_script)
+    def sanitize_browser_script(self, js_script: str) -> str:
+        return self.browser_interceptor.sanitize_evaluate_script(js_script)

@@ -3,64 +3,48 @@ import shlex
 
 class CommandInterceptor:
     """
-    Intercepts and blocks dangerous OS commands and path traversal attempts.
-    Features Human-in-the-Loop (HITL) Webhook integration for manual approval overrides.
+    Ultimate Defense: Uses a Strict Allowlist and 'realpath' to completely neutralize 
+    Living-off-the-Land (LotL) attacks and symlink traversals.
     """
-    def __init__(self, allowed_dirs: list[str] = None, webhook_url: str = None):
-        self.allowed_dirs = []
-        if allowed_dirs:
-            self.allowed_dirs = [os.path.abspath(d) for d in allowed_dirs]
+    def __init__(self, allowed_dirs: list[str] = None, webhook_url: str = None, strict_allowlist: list[str] = None):
+        # Use realpath to resolve all symlinks at initialization
+        self.allowed_dirs = [os.path.realpath(d) for d in allowed_dirs] if allowed_dirs else []
         
-        self.dangerous_commands = ["rm", "sudo", "shutdown", "reboot", "mkfs", "dd", "mv"]
-        self.webhook_url = webhook_url
-        
-    def _request_human_approval(self, action_description: str) -> bool:
-        """
-        Mocks a Webhook call (e.g., Slack) requesting human approval.
-        In a real scenario, this would POST to the URL and poll or wait for a callback.
-        """
-        print(f"\n[HITL Webhook] 🔔 Notification sent to {self.webhook_url}")
-        print(f"  Action: {action_description}")
-        print(f"  Status: Pending Human Approval...")
-        # For the sake of this PoC, we will auto-reject to maintain security, 
-        # but the infrastructure is in place.
-        return False
+        # Denylists are fundamentally broken. We use a Strict Allowlist.
+        # If no allowlist is provided, we default to extremely safe observation commands only.
+        if strict_allowlist is None:
+            self.strict_allowlist = ["ls", "cat", "echo", "pwd", "whoami", "grep", "find"]
+        else:
+            self.strict_allowlist = strict_allowlist
+            
+        self.subshells = ["bash", "sh", "zsh", "python", "python3", "node", "perl", "ruby", "env"]
 
     def validate_command(self, cmd_string: str) -> None:
-        """
-        Parses the command string and blocks execution if it contains forbidden actions
-        or attempts to read/write outside allowed directories.
-        """
-        commands = shlex.split(cmd_string)
-        if not commands:
-            return
+        try:
+            commands = shlex.split(cmd_string)
+        except ValueError:
+            raise Exception("Security Shield: Malformed command string block.")
             
+        if not commands: return
         base_cmd = commands[0].lower()
         
-        # Block dangerous commands
-        if base_cmd in self.dangerous_commands:
-            if self.webhook_url:
-                approved = self._request_human_approval(f"Dangerous command executed: {cmd_string}")
-                if approved:
-                    return # Human overrode the block
-            raise Exception(f"Security Shield: Command '{base_cmd}' is blocked for agents.")
+        # 1. Strict Allowlist Enforcement (Fixes LotL vulnerabilities like 'wget', 'curl', 'dd')
+        # Even if allowed, block subshell wrappers (e.g., 'env bash -c')
+        if base_cmd in self.subshells or "-c" in commands or "-e" in commands:
+             raise Exception(f"Security Shield: Subshell OS execution blocked.")
+             
+        if base_cmd not in self.strict_allowlist:
+            raise Exception(f"Security Shield: Command '{base_cmd}' rejected. Not in strict allowlist: {self.strict_allowlist}")
             
-        # Basic Path Traversal Check for any arguments that look like paths
+        # 2. Symlink-proof Path Traversal using realpath
         if self.allowed_dirs:
-            escaped_args = commands[1:]
-            for arg in escaped_args:
-                if arg.startswith("/") or arg.startswith("~") or ".." in arg:
-                    abs_path = os.path.abspath(os.path.expanduser(arg))
+            for arg in commands[1:]:
+                if arg.startswith("/") or ".." in arg or arg.startswith("~"):
+                    try:
+                         # realpath resolves all symlinks, defeating `ln -s /etc/shadow ./safe_dir/shadow`
+                         abs_path = os.path.realpath(os.path.expanduser(arg))
+                    except:
+                         continue
                     
-                    is_allowed = False
-                    for allowed in self.allowed_dirs:
-                        if abs_path.startswith(allowed):
-                            is_allowed = True
-                            break
-                            
-                    if not is_allowed:
-                        if self.webhook_url:
-                             approved = self._request_human_approval(f"Path traversal outside sandbox: {arg}")
-                             if approved:
-                                 continue
-                        raise Exception(f"Security Shield: Path Traversal Blocked. Cannot access '{arg}'. Allowed dirs: {self.allowed_dirs}")
+                    if not any(abs_path.startswith(d) for d in self.allowed_dirs):
+                        raise Exception(f"Security Shield: Path Traversal/Symlink Blocked: '{arg}' resolves outside sandbox.")

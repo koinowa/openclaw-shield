@@ -25,6 +25,12 @@ class CommandInterceptor:
         except ValueError:
             raise Exception("Security Shield: Malformed command string block.")
             
+        # 0. Shell Operator / Chaining Block (Defeats LotL bypasses via &&, ;, |)
+        dangerous_chars = [";", "&&", "||", "|", ">", "<", "$(", "`"]
+        for char in dangerous_chars:
+            if char in cmd_string:
+                raise Exception(f"Security Shield: Command chaining/redirection '{char}' is strictly prohibited.")
+                
         if not commands: return
         base_cmd = commands[0].lower()
         
@@ -46,5 +52,5 @@ class CommandInterceptor:
                     except:
                          continue
                     
-                    if not any(abs_path.startswith(d) for d in self.allowed_dirs):
+                    if not any(os.path.commonpath([d, abs_path]) == d for d in self.allowed_dirs):
                         raise Exception(f"Security Shield: Path Traversal/Symlink Blocked: '{arg}' resolves outside sandbox.")

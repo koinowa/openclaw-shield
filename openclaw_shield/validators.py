@@ -56,26 +56,29 @@ class PromptValidator:
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": safe_wrapped_text}
-                ],
-                temperature=0.0,
-                max_tokens=10
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": safe_wrapped_text}],
+                temperature=0.0, max_tokens=10
             )
             return "YES" in response.choices[0].message.content.strip().upper()
-        except:
-            return False
+        except Exception as e:
+            # Loop 3 Ultimate Fix: Fail-Closed. If the API crashes (e.g., due to a maliciously crafted 
+            # payload designed to cause a 400 Bad Request), DO NOT let the payload through.
+            print(f"[PromptValidator] AI Scanner Error: {e}")
+            raise Exception("Security Shield: AI Scanner failed to process the payload (Fail-Closed triggered).")
 
     def validate(self, text: str) -> None:
-        if not self.scan_injections or not text:
-            return
-            
-        lower_text = text[:self.max_scan_chars].lower()
-        for phrase in self.blacklist_phrases:
-            if phrase in lower_text:
-                raise Exception(f"Security Shield: Injection detected (Heuristic)! Keyword found.")
-                
-        if self.client:
-            if self._call_ai_scanner(text):
-                raise Exception(f"Security Shield: Injection detected (AI Scanner - Sandbox Mode)!")
+        if not self.scan_injections or not text: return
+        try:
+            lower_text = text[:self.max_scan_chars].lower()
+            for phrase in self.blacklist_phrases:
+                if phrase in lower_text:
+                    raise Exception("Injection detected (Heuristic)! Keyword found.")
+                    
+            if self.client and self._call_ai_scanner(text):
+                raise Exception("Injection detected (AI Scanner - Sandbox Mode)!")
+        except Exception as e:
+            # Re-raise intended security blocks
+            if "Injection detected" in str(e):
+                raise
+            # Crash protection against malformed inputs (Fail Closed)
+            raise Exception(f"Security Shield: Invalid input caused scanner crash: {e}")

@@ -48,6 +48,7 @@ class ResourceLimiter:
                 pass
                 
         # Ultimate Fallback: High CJK-safe character ratio calculation
+        # If the model is not found in our pre-approved PRICING_TABLE, we MUST use the fallback multiplier.
         total_chars = len(prompt) + len(response)
         estimated_cost = (total_chars / 1000.0) * self.fallback_cost_cjk_multiplier_usd
         return estimated_cost

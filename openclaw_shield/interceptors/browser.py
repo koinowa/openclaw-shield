@@ -35,6 +35,23 @@ class BrowserInterceptor:
                     configurable: false
                 });
                 
+                // 3. Freeze core objects and hook iframe creation
+                Object.freeze(Object.prototype);
+                const originalCreateElement = document.createElement;
+                document.createElement = function(tagName) {
+                    const el = originalCreateElement.call(document, tagName);
+                    if (tagName.toLowerCase() === 'iframe') {
+                        el.addEventListener('load', () => {
+                            try {
+                                Object.defineProperty(el.contentDocument, 'cookie', { get: function() { return ''; }, set: function() {}, configurable: false });
+                                delete el.contentWindow.localStorage;
+                                delete el.contentWindow.sessionStorage;
+                            } catch(e) {}
+                        });
+                    }
+                    return el;
+                };
+                
                 window._shield_injected = true;
             }
         } catch(e) {}
